@@ -1,8 +1,5 @@
 Glass module for Drupal
 ================================
-___This module is purely experimental, so use at your own risk.___
-
-__You'll see in the code that for this module to serve a large pool of Glass users it would need slightly restructured. This is really just a proof of concept to show how Drupal can be used to serve a website and Glass timeline items.__
 
 The Glass module for Drupal allows you to push nodes from a Drupal site to Google Glass using the Mirror API. The module will push all nodes from a selected nodequeue to Glass and update those items using the Mirror API when the nodes are updated on your Drupal site.
 
@@ -25,3 +22,9 @@ Installation
 2. Download the [Google APIs Client Library for PHP](https://code.google.com/p/google-api-php-client/) and place it in your `sites/*/libraries` folder. Make sure the folder is named google-api-php-client.
 3. Follow the directions on the Google Developers [PHP Quick Start](https://developers.google.com/glass/quickstart/php) page to setup an API project. Under *Authorized Redirect URIs* use yoursite.com/glass/install and be sure to add your site under *Javascript origins*. You'll need the *API Client ID*, *API Client Secret* and *API Simple Key* during the module setup process.
 4. Enable the module and finish the setup at yoursite.com/admin/settings/glass.
+
+Disclaimer
+-------------------------
+__This module is purely experimental, so use at your own risk.__
+
+You'll see in the code that for this module to serve a large pool of Glass users it would need slightly restructured. This is really just a proof of concept to show how Drupal can be used to serve a website and Glass timeline items.
