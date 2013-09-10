@@ -1,0 +1,7 @@
+name = Glass
+description = Push items from a nodequeue to Google Glassware
+core = 6.x
+dependencies[] = imagecache
+dependencies[] = imagefield
+dependencies[] = nodequeue
+dependencies[] = libraries

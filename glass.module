@@ -1,0 +1,552 @@
+<?php
+
+/**
+ * Implementation of hook_perm()
+ **/
+function glass_perm() {
+	return array('administer glass');
+}
+
+/**
+ * Implementation of hook_menu() to add admin pages to menu system.
+ **/
+function glass_menu() {
+	$items = array();
+	$items['admin/settings/glass'] = array(
+		'title' => 'Glassware',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('glass_adminform'),
+		'access arguments' => array('administer glass'),
+		'type' => MENU_NORMAL_ITEM,
+	);
+	$items['glass/install'] = array(
+		'title' => 'Glassware OAuth2 callback page',
+		'page callback' => 'glass_oauth_callback',
+		'type' => MENU_CALLBACK,
+		'access callback' => TRUE,
+	);
+	return $items;
+}
+
+/**
+ * Menu callback to handle OAuth handshake process
+ *
+ * Modified from Google Mirror API PHP Quick Start:
+ * https://developers.google.com/glass/quickstart/php
+ **/
+function glass_oauth_callback() {
+	if ($path = libraries_get_path('google-api-php-client')) {
+		require_once($path . '/src/Google_Client.php');
+		require_once($path . '/src/contrib/Google_Oauth2Service.php');
+	}
+	$client = _glass_get_google_api_client();
+	if (isset($_GET['code'])) {
+		// Handle step 2 of the OAuth 2.0 dance - code exchange
+		$client->authenticate();
+		$access_token = $client->getAccessToken();
+		// Use the identity service to get their ID
+		$identity_client = _glass_get_google_api_client();
+		$identity_client->setAccessToken($access_token);
+		$identity_service = new Google_Oauth2Service($identity_client);
+		$user = $identity_service->userinfo->get();
+		$user_id = $user->getId();
+		watchdog('glass', $user_id);
+		// Check to see if the user is already in the database and register if not
+		$query = db_query("SELECT * from {glass_credentials} WHERE glass_user = %d", $user_id);
+		if(db_fetch_array($query) === FALSE) {
+			// Store their credentials and register their ID in the database
+			watchdog('glass', $user_id);
+			$record = new stdClass();
+			$record->glass_user = $user_id;
+			$record->credentials = $client->getAccessToken();
+			$query = drupal_write_record('glass_credentials', $record);
+			// Setup the new user
+			_glass_new_user($record);			
+		}
+		// Redirect to the confirmation page
+		drupal_goto($path = variable_get('glass_installed_page', '<front>'));
+	}
+	else {
+		// Handle step 1 of the OAuth 2.0 dance - redirect to Google
+		header('Location: ' . $client->createAuthUrl());
+	}
+}
+
+/**
+ * Handle the first push to the user by sending a bundle cover
+ * and all of the stories in the selected nodequeue.
+ *
+ * @param object $new_user database record returned from write
+ * of user's credentials to {glass_credentials}
+ **/
+function _glass_new_user($new_user) {
+	if ($path = libraries_get_path('google-api-php-client')) {
+		require_once($path . '/src/contrib/Google_MirrorService.php');
+	}
+	$user_specific_client = _glass_get_google_api_client();
+	$user_specific_client->setAccessToken($new_user->credentials);
+	// prepare and insert bundle cover
+	$new_timeline_item = new Google_TimelineItem();
+	$new_timeline_item->setBundleId(variable_get('glass_bundlename', NULL));
+	$new_timeline_item->setIsBundleCover(TRUE);
+	global $base_url;
+	$new_timeline_item->setHtml('<article class="photo"><img src="' . $base_url . '/' . drupal_get_path('module', 'glass') . '/img/bundle-cover.jpg" width="100%" height="100%"></article>');
+	$notification = new Google_NotificationConfig();
+    $notification->setLevel("DEFAULT");
+    $new_timeline_item->setNotification($notification);
+	$user_specific_mirror_service = new Google_MirrorService($user_specific_client);
+	$inserted_items = _glass_insert_timeline_item($user_specific_mirror_service, $new_timeline_item, null, null);
+	// Push all nodes from selected nodequeue to glass
+	$nodes = nodequeue_load_nodes(variable_get('glass_nodequeue', 0));
+	foreach($nodes as $node) {
+		$new_timeline_item = _glass_build_card($node);
+		$notification = new Google_NotificationConfig();
+	    $notification->setLevel("DEFAULT");	
+		$user_specific_client = _glass_get_google_api_client();
+		$user_specific_client->setAccessToken($new_user->credentials);
+		$user_specific_mirror_service = new Google_MirrorService($user_specific_client);
+		$inserted_item = _glass_insert_timeline_item($user_specific_mirror_service, $new_timeline_item, null, null);
+		_glass_record_relation('insert', $node->nid, $new_user->userid, $inserted_item);
+	}
+}
+
+/**
+ * Form for module settings page.
+ **/
+function glass_adminform($form_state) {
+	$form['glass_nodequeue'] = array(
+		'#title' => t('Nodequeue to push nodes from'),
+		'#type' => 'select',
+		'#required' => TRUE,
+		'#description' => t(''),
+		'#options' => _glass_admin_options_nodequeue(),
+		'#default_value' => variable_get('glass_nodequeue', 0),
+	);
+    $form['glass_send_node_updates'] = array(
+    	'#type' => 'checkbox',
+    	'#title' => t('Send node updates to Glassware as long as nodes are in the above nodequeue.'),
+    	'#default_value' => variable_get('glass_send_node_updates', 1),
+	);
+	$form['glass_only_retain_nodequeue'] = array(
+		'#type' => 'checkbox',
+		'#title' => t('Remove nodes from Glassware when they\'re removed from the nodequeue.'),
+		'#default_value' => variable_get('glass_only_retain_nodequeue', 0)
+	);
+	$form['glass_use_images'] = array(
+		'#title' => t('Push images to Glassware'),
+		'#type' => 'checkbox',
+		'#default_value' => variable_get('glass_use_images', 0),
+	);
+    $form['glass_imagefield'] = array(
+		'#type' => 'select', 
+		'#title' => t('Imagefield to push to Glassware'), 
+		'#default_value' => variable_get('glass_imagefield', 0),
+		'#options' => _glass_admin_options_imagefield(),
+		'#description' => t('Images from this field will be formatted using a special imagecache preset before being pushed to users.'),
+    );
+    $form['glass_bundlename'] = array(
+    	'#type' => 'textfield',
+    	'#title' => t('Bundle name for timeline items'),
+    	'#default_value' => variable_get('glass_bundlename', NULL),
+    	'#description' => t('This bundle name is used to pull your timeline items together into a single card. Changing it after pushing items to Glassware will result in a new bundle being created.')
+	);
+	$form['glass_bundle_cover'] = array(
+	    '#type' => 'file',
+	    '#title' => t('Bundle cover image'),
+	    '#description' => t('This image will be used as the bundle cover. It should be 640px x 360px.'),
+	    '#default_value' => variable_get('glass_bundle_cover', 0),
+	    // '#element_validate' => array('_glass_admin_cover_validate')
+	);    
+	$form['#attributes'] = array(
+	    'enctype' => "multipart/form-data"
+	);
+    global $base_url;
+    $form['glass_installed_page'] = array(
+    	'#type' => 'textfield',
+    	'#title' => t('Installation confirmation page'),
+    	'#default_value' => variable_get('glass_installed_page', NULL),
+    	'#description' => t('This is the page users will be redirected to after installing the Glassware. If one isn\'t set, they\'ll be redirected to the home page.'),
+    	'#field_prefix' => $base_url . '/',
+    );
+    $form['glass_api_client_id'] = array(
+    	'#type' => 'textfield',
+    	'#title' => t('API client ID'),
+    	'#default_value' => variable_get('glass_api_client_id', NULL)
+    );
+    $form['glass_api_client_secret'] = array(
+    	'#type' => 'textfield',
+    	'#title' => t('API client secret'),
+    	'#default_value' => variable_get('glass_api_client_secret', NULL)
+    );
+    $form['glass_api_simple_key'] = array(
+    	'#type' => 'textfield',
+    	'#title' => t('API simple key'),
+    	'#default_value' => variable_get('glass_api_simple_key', NULL)
+    );
+	return system_settings_form($form);
+}
+
+/*
+function glass_form_alter($form, $form_state, $form_id) {
+	print '<pre>';
+	print 'Form:';
+	print_r($form);
+	print 'Form_state:';
+	print_r($form_state);
+	print 'Form ID:';
+	print_r($form_id);
+	print '</pre>';
+}
+*/
+
+/**
+ * Validation for bundle cover image.
+ **/
+/*
+function _glass_admin_cover_validate($element, &$form_state) {
+    if(empty($element['#value'])){
+		form_error($element, t('Uploading a bundle cover is required.'));
+	}
+}
+*/
+
+/**
+ * Build options for Glassware image fields.
+ **/
+function _glass_admin_options_imagefield() {
+	$result = db_query("SELECT field_name FROM {content_node_field_instance} WHERE widget_type = 'imagefield_widget'");
+	$fields = array();
+	while($field = db_fetch_array($result)) {
+		$fields[$field['field_name']] = $field['field_name'];
+	}
+	return $fields;
+}
+
+/**
+ * Build options for Glassware nodequeues.
+ **/
+function _glass_admin_options_nodequeue() {
+	$nodequeues = nodequeue_get_qid_map();
+	$return = array();
+	foreach($nodequeues as $name => $qid) {
+		$return[$qid] = $name;
+	}
+	return $return;
+}
+
+/**
+ * Implementation of hook_nodequeue_add()
+ *
+ * When nodes are added to the specified nodequeue, push them
+ * to Glassware.
+ **/
+function glass_nodequeue_add($sqid, $nid) {
+	if($sqid == variable_get('glass_nodequeue', 0)) {
+		_glass_push_card('insert', $nid);
+	}
+}
+
+/**
+ * Implementation of hook_nodequeue_remove()
+ *
+ * When nodes are removed from the specified nodequeue, remove
+ * them from the Glassware. Can be enabled in module settings.
+ **/
+function glass_nodequeue_remove($sqid, $nid) {
+	if(variable_get('glass_only_retain_nodequeue', 0)) {
+		if($sqid == variable_get('glass_nodequeue', 0)) {
+			_glass_push_card('delete', $nid);
+		}
+	}
+}
+
+/**
+ * Implementation of hook_nodeapi()
+ *
+ * When nodes are updated, those changes are pushed to Glassware. 
+ * On each node update, a check is done to see if the node is 
+ * in the relevant nodequeue. The check is done at the update 
+ * stage so it's not executed on all node view and prep operations.
+ *
+ * This means that only nodes that are still in the nodequeue will
+ * have updates pushed to Google Glass.
+ *
+ * When a node is deleted, it's removed from all Glassware.
+ **/
+function glass_nodeapi(&$node, $op, $a3 = NULL, $a4 = NULL) {
+	switch($op):
+		case 'update':
+			if(variable_get('glass_send_node_updates', 1)) {
+				if((bool)nodequeue_get_subqueue_position(variable_get('glass_nodequeue', 0), $node->nid)){
+					_glass_push_card('update', $node->nid, $node);
+				}
+			}
+			break;
+		case 'delete':
+			_glass_push_card('delete', $node->nid, $node);
+			break;
+	endswitch;
+}
+
+/**
+ * Build a story timeline item from a story node.
+ *
+ * @param object $node Drupal node of type story that uses
+ * the field field_photo to store photos. Also requires imagecache
+ * preset 'glass'
+ * @return Google_TimelineItem
+ **/
+function _glass_build_card($node) {
+	$new_timeline_item = new Google_TimelineItem();
+	$new_timeline_item->setBundleId(variable_get('glass_bundlename', NULL));
+	$new_timeline_item->setIsBundleCover(FALSE);
+    $new_timeline_item->setCanonicalUrl(url('node/' . $node->nid, $options = array('absolute' => TRUE)));
+    $new_timeline_item->setSpeakableType('TCU 360 story');
+    $new_timeline_item->setSpeakableText(drupal_html_to_text($node->body));
+    $new_timeline_item->setSourceItemId($node->nid);
+
+    $menu = array();
+    $menu[0] = new Google_MenuItem();
+    $menu[0]->setAction("SHARE");
+    $menu[1] = new Google_MenuItem();
+    $menu[1]->setAction("READ_ALOUD");
+    $menu[2] = new Google_MenuItem();
+    $menu[2]->setAction("DELETE");
+    $new_timeline_item->setMenuItems($menu);
+
+    $use_images = variable_get('glass_use_images', 0);
+    $photo_field = variable_get('glass_imagefield', 0);
+    if($use_images && $photo_field) {
+    	$photos = $node->$photo_field;
+		if($photos[0]) {
+			$image_url = imagecache_create_url('glassware_timeline_item_photo', $photos[0]['filepath'], $bypass_browser_cache = FALSE, $absolute = TRUE);
+			$card_html = '<article class="photo">';
+			$card_html .= '<img src="' . $image_url . '" width="100%" height="100%">';
+			$card_html .= '<div class="photo-overlay"/>';
+			$card_html .= '<section>';
+			$card_html .= '<p class="text-auto-size">' . $node->title . '</p>';
+			$card_html .= '</section>';
+			$card_html .= '</article>';
+			// $card_html = addslashes($card_html);
+			$new_timeline_item->setHtml($card_html);
+		} else {
+			$new_timeline_item->setText($node->title);
+		}
+	}
+	else {
+		$new_timeline_item->setText($node->title);
+	}
+
+	return $new_timeline_item;
+}
+
+/**
+ * Insert, update and delete cards from Glassware.
+ *
+ * @param string $op what to do with the passed @nid and @gid
+ * @param integer $nid node ID of card to be pushed
+ * optional @param object $node in some instances, the node is already loaded so it's
+ *    more efficient to pass it instead of $nid
+ *
+ * All operations are applied to all Glassware users, hence the foreach() loops.
+ **/
+function _glass_push_card($op, $nid, $node = NULL) {
+	if ($path = libraries_get_path('google-api-php-client')) {
+		require_once($path . '/src/Google_Client.php');
+		require_once($path . '/src/contrib/Google_MirrorService.php');
+		require_once($path . '/src/contrib/Google_Oauth2Service.php');
+	}
+	switch($op):
+		case 'insert':
+			if($node == NULL) {
+				$node = node_load($nid);
+			}
+			$new_timeline_item = _glass_build_card($node);
+			$notification = new Google_NotificationConfig();
+		    $notification->setLevel("DEFAULT");
+			$result = db_query('SELECT * FROM {glass_credentials}');
+			while ($credential = db_fetch_array($result)) {
+				$user_specific_client = _glass_get_google_api_client();
+				$user_specific_client->setAccessToken($credential['credentials']);
+				$user_specific_mirror_service = new Google_MirrorService($user_specific_client);
+				$inserted_item = _glass_insert_timeline_item($user_specific_mirror_service, $new_timeline_item, null, null);
+				_glass_record_relation($op, $nid, $credential['userid'], $inserted_item);
+			}
+			break;
+		case 'update':
+			if($node == NULL) {
+				$node = node_load($nid);
+			}
+			$updated_timeline_item = _glass_build_card($node);
+			$result = db_query('SELECT * FROM {glass_items} i
+				INNER JOIN {glass_credentials} c ON i.userid = c.userid
+				WHERE nid = %d',
+				$nid);
+			while ($timeline_item = db_fetch_array($result)) {
+				$user_specific_client = _glass_get_google_api_client();
+				$user_specific_client->setAccessToken($timeline_item['credentials']);
+				$user_specific_mirror_service = new Google_MirrorService($user_specific_client);
+				$inserted_item = _glass_update_timeline_item($timeline_item['timeline_id'], $user_specific_mirror_service, $updated_timeline_item, null, null);
+				_glass_record_relation($op, $nid, $timeline_item['userid'], $inserted_item, $timeline_item['gid']);
+			}
+			break;
+		case 'delete':
+			$result = db_query('SELECT * FROM {glass_items} i
+				INNER JOIN {glass_credentials} c ON i.userid = c.userid
+				WHERE nid = %d',
+				$nid);
+			if($result != FALSE) {
+				while ($timeline_item = db_fetch_array($result)) {
+					$user_specific_client = _glass_get_google_api_client();
+					$user_specific_client->setAccessToken($timeline_item['credentials']);
+					$user_specific_mirror_service = new Google_MirrorService($user_specific_client);
+					_glass_delete_timeline_item($user_specific_mirror_service, $timeline_item['timeline_id']);
+				}
+				_glass_record_relation($op, $nid);
+			}
+			break;
+	endswitch;
+	watchdog('glass', 'Processed @op of node ID @nid to all registered Glassware users.', $variables = array('@op' => $op, '@nid' => $nid));
+}
+
+/**
+ * Record the relationship between nodes and timeline items
+ * when they're pushed to Glassware. Failures are logged to the
+ * Drupal watchdog.
+ *
+ * @param string $op
+ * @param integer $nid
+ * optional @param integer $userid
+ * optional @param Google_TimelineItem $inserted_item
+ * optional @param array $gid
+ */
+function _glass_record_relation($op, $nid, $userid = NULL, $inserted_item = NULL, $gid = NULL) {
+	if($op != 'delete') {
+		$record = new stdClass();
+		$record->nid = $nid;
+		$record->timeline_id = $inserted_item->getId();
+		$record->userid = $userid;
+		$record->timestamp = time();
+	}
+	switch($op):
+		case 'insert':
+			$new_entry = drupal_write_record('glass_items', $record);
+			break;
+		case 'update':
+			$record->gid = $gid;
+			$new_entry = drupal_write_record('glass_items', $record, $update = 'gid');
+			break;
+		case 'delete':
+			$new_entry = db_query('DELETE FROM {glass_items} WHERE nid = %d', $nid);
+			break;
+	endswitch;
+	if($new_entry == FALSE) {
+		watchdog(
+			'glass',
+			'Failed to @op the relationship between node ID @nid and timeline item @timeline_id in the database.',
+			$variables = array('@op' => $op, '@nid' => $nid, '@timeline_id' => $inserted_item->getId()),
+			$severity = WATCHDOG_ERROR
+		);
+	}
+}
+
+/**
+ * Returns an unauthenticated service.
+ *
+ * Modified from Google Mirror API PHP Quick Start:
+ * https://developers.google.com/glass/quickstart/php
+ **/
+function _glass_get_google_api_client() {
+	$api_client_id = variable_get('glass_api_client_id', 0);
+	$api_client_secret = variable_get('glass_api_client_secret', 0);
+	$api_simple_key = variable_get('glass_api_simple_key', 0);
+	global $base_url;
+
+	$client = new Google_Client();
+
+	$client->setUseObjects(true);
+	$client->setApplicationName('Google Mirror API PHP Quick Start');
+
+	// These are set in config.php
+	$client->setClientId($api_client_id);
+	$client->setClientSecret($api_client_secret);
+	$client->setDeveloperKey($api_simple_key);
+	$client->setRedirectUri($base_url . "/glass/install");
+
+	$client->setScopes(array(
+		'https://www.googleapis.com/auth/glass.timeline',
+		'https://www.googleapis.com/auth/userinfo.profile'));
+
+	return $client;
+}
+
+/**
+ * Insert a timeline item using the Mirror API.
+ *
+ * @param Google_MirrorService $service
+ * @param Google_TimelineItem $timeline_item
+ * @param $content_type
+ * @param $attachment
+ *
+ * Modified from Google Mirror API PHP Quick Start:
+ * https://developers.google.com/glass/quickstart/php
+ **/
+function _glass_insert_timeline_item($service, $timeline_item, $content_type, $attachment) {
+	try {
+		$opt_params = array();
+		if ($content_type != null && $attachment != null) {
+			$opt_params['data'] = $attachment;
+			$opt_params['mimeType'] = $content_type;
+		}
+		return $service->timeline->insert($timeline_item, $opt_params);
+	}
+	catch (Exception $e) {
+		watchdog('glass', 'An error occurred inserting a timeline item: @error', $variables = array('@error' => $e->getMessage()), WATCHDOG_ERROR);
+		return null;
+	}
+}
+
+/**
+ * Update a timeline item using the Mirror API.
+ *
+ * @param string $id Google Mirror API timeline item ID
+ * @param Google_MirrorService $service
+ * @param Google_TimelineItem $timeline_item
+ * @param $content_type
+ * @param $attachment
+ *
+ * Modeled after insert_timeline_item() in the Google Mirror API PHP Quick Start:
+ * https://developers.google.com/glass/quickstart/php
+ */
+function _glass_update_timeline_item($id, $service, $timeline_item, $content_type, $attachment) {
+	try {
+		$opt_params = array();
+		if ($content_type != null && $attachment != null) {
+			$opt_params['data'] = $attachment;
+			$opt_params['mimeType'] = $content_type;
+		}
+		return $service->timeline->update($id, $timeline_item, $opt_params);
+	}
+	catch (Exception $e) {
+		watchdog('glass', 'An error occurred updating a timeline item: @error', $variables = array('@error' => $e->getMessage()), WATCHDOG_ERROR);
+		return null;
+	}
+}
+
+/**
+ * Delete a timeline item using the Mirror API.
+ *
+ * @param Google_MirrorService $service Authorized Mirror service.
+ * @param string $item_id ID of the Timeline Item to delete.
+ *
+ * Modified from Google Mirror API PHP Quick Start:
+ * https://developers.google.com/glass/quickstart/php
+ */
+function _glass_delete_timeline_item($service, $item_id) {
+	try {
+		$service->timeline->delete($item_id);
+	}
+	catch (Exception $e) {
+		watchdog('glass', 'An error occurred deleting a timeline item: @error', $variables = array('@error' => $e->getMessage()), WATCHDOG_ERROR);
+	}
+}

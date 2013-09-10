@@ -1,0 +1,164 @@
+<?php
+
+/**
+ * Implementation of hook_schema()
+ */
+function glass_schema() {
+  $schema['glass_items'] = array(
+  	'description' => 'Stores relationship between Drupal nodes and Glassware timeline items.',
+  	'fields' => array(
+      'gid' => array(
+        'description' => 'The Drupal database ID for each Glassware timeline item/node relationship.',
+        'type' => 'serial',
+        'unsinged' => TRUE,
+        'not null' => TRUE
+      ),
+      'nid' => array(
+        'description' => 'The node ID from {node} of the node that was pushed to Glassware.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0
+      ),
+  		'timeline_id' => array(
+  			'description' => 'The unique identifier for the pushed Glassware timeline item.',
+  			'type' => 'text',
+  			'size' => 'small',
+        'not null' => TRUE
+  		),
+  		'userid' => array(
+  			'description' => 'The ID from {glass_users} of the user who the Glassware timeline item was pushed to.',
+  			'type' => 'int',
+  			'unsigned' => TRUE,
+  			'not null' => TRUE,
+        'default' => 0
+  		),
+  		'timestamp' => array(
+  			'description' => 'The time the item was pushed to the Glassware.',
+  			'type' => 'int',
+  			'unsigned' => TRUE,
+  			'not null' => TRUE,
+        'default' => 0
+  		),
+  	),
+  	'indexes' => array(
+  		'nid' => array('nid'),
+      'userid' => array('userid'),
+  	),
+  	'primary key' => array('gid'),
+  );
+  $schema['glass_credentials'] = array(
+    'description' => 'Stores credentials to post to all authorized Glassware user accounts.',
+    'fields' => array(
+      'userid' => array(
+        'description' => 'The unique identifier for each Glassware user.',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE
+      ),
+      'glass_user' => array(
+        'description' => 'The user id provied by the Google Mirror API.',
+        'type' => 'text',
+        'size' => 'normal',
+        'not null' => TRUE,
+        'default' => ''
+      ),
+      'credentials' => array(
+        'description' => 'The user credentials required to post to Glassware.',
+        'type' => 'text',
+        'size' => 'normal',
+        'not null' => TRUE,
+        'default' => ''
+      ),
+    ),
+    'primary key' => array('userid'),
+  );
+  return $schema;
+}
+
+/**
+ * Create preset for Glassware images.
+ */
+function _glass_create_imagecache_preset() {
+  $imagecachepreset = imagecache_preset_save(
+    array('presetname' => 'glassware_timeline_item_photo')
+  );
+  $imagecacheaction = new stdClass ();
+  $imagecacheaction->presetid = $imagecachepreset['presetid'];
+  $imagecacheaction->module = 'imagecache';
+  $imagecacheaction->action = 'imagecache_scale_and_crop';
+  $imagecacheaction->data = array('width' => '640', 'height' => '360' );
+  drupal_write_record('imagecache_action', $imagecacheaction);
+}
+
+/**
+ * Delete preset for Glassware images.
+ */
+function _glass_delete_imagecache_preset() {
+  imagecache_preset_delete(imagecache_preset_by_name('glassware_timeline_item_photo'));
+}
+
+/**
+ * Implementation of hook_install()
+ */
+function glass_install() {
+  drupal_install_schema('glass');
+  _glass_create_imagecache_preset();
+  variable_set('glass_send_node_updates', 1);
+  $bundle_name = variable_get('site_name', NULL);
+  variable_set('glass_bundlename', $bundle_name);
+  drupal_set_message(t('You must choose a nodequeue and upload a bundle cover on the module settings page to begin pushing nodes to Glassware.'), 'warning');
+}
+
+/**
+ * Implementation of hook_uninstall()
+ */
+function glass_uninstall() {
+  drupal_uninstall_schema('glass');
+  _glass_delete_imagecache_preset();
+  variable_del('glass_nodequeue');
+  variable_del('glass_use_images');
+  variable_del('glass_imagefield');
+  variable_del('glass_installed_page');
+  variable_del('glass_api_client_id');
+  variable_del('glass_api_client_secret');
+  variable_del('glass_api_simple_key');
+  variable_del('glass_send_node_updates');
+  variable_del('glass_bundlename');
+  variable_del('glass_only_retain_nodequeue');
+}
+
+/**
+ * Implementation of hook_requirements()
+ *
+ * Provides estimated API call count, ensures that Google library is
+ * available.
+ */
+function glass_requirements($phase) {
+  switch($phase):
+    case 'install':
+      $fail = FALSE;
+      if ($path = libraries_get_path('google-api-php-client')) {
+        $includes = array();
+        $includes[] = '/src/Google_Client.php';
+        $includes[] = '/src/contrib/Google_MirrorService.php';
+        $includes[] = '/src/contrib/Google_Oauth2Service.php';
+        foreach($includes as $include) {
+          if(!file_exists($path . $include)) {
+            $fail = TRUE;
+          }
+        }
+        if($fail) {
+          $requirements['google-api-php-client'] = array(
+            'title' => 'Google API PHP client',
+            'description' => 'Before installing you need to install the Google API PHP client. See Readme.txt for more information.',
+            'severity' => REQUIREMENT_ERROR
+          );
+        }
+      }
+      break;
+    case 'runtime':
+      break;
+  endswitch;
+  return $requirements;
+}
