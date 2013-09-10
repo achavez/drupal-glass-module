@@ -1,6 +1,8 @@
 Glass module for Drupal
 ================================
-___This module is purely experimental, so use at your own risk._ You'll see in the code that for this module to serve a large pool of Glass users it would need slightly restructured. This is really just a proof of concept to show how Drupal can be used to serve a website and Glass timeline items.___
+___This module is purely experimental, so use at your own risk._
+
+You'll see in the code that for this module to serve a large pool of Glass users it would need slightly restructured. This is really just a proof of concept to show how Drupal can be used to serve a website and Glass timeline items.__
 
 The Glass module for Drupal allows you to push nodes from a Drupal site to Google Glass using the Mirror API. The module will push all nodes from a selected nodequeue to Glass and update those items using the Mirror API when the nodes are updated on your Drupal site.
 
