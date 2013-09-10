@@ -4,7 +4,7 @@ The Glass module for Drupal allows you to push nodes from a Drupal site to Googl
 
 Items are pushed as an HTML timeline card if there are images present or as a text card if there isn't an image attached. Because access to the Mirror API is currently limited, you'll need to be in the Glass Explorer program to use this module.
 
-This module is currently only for Drupal 6.
+This module is currently only for Drupal 6. It's based heavily on googleglass/mirror-quickstart-php.
 
 Requirements
 -------------------------
