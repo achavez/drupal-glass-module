@@ -18,6 +18,6 @@ Requirements
 Installation
 -------------------------
 1. Download the module to your `sites/*/modules` folder
-2. Download the [Google APIs Client Library for PHP](https://code.google.com/p/google-api-php-client/) and place it in your `sites/*/libraries` folder. Make sure folder is named google-api-php-client.
+2. Download the [Google APIs Client Library for PHP](https://code.google.com/p/google-api-php-client/) and place it in your `sites/*/libraries` folder. Make sure the folder is named google-api-php-client.
 3. Follow the directions on the Google Developers [PHP Quick Start](https://developers.google.com/glass/quickstart/php) page to setup an API project. Under *Authorized Redirect URIs* use yoursite.com/glass/install and be sure to add your site under *Javascript origins*. You'll need the *API Client ID*, *API Client Secret* and *API Simple Key* during the module setup process.
 4. Enable the module and finish the setup at yoursite.com/admin/settings/glass.
