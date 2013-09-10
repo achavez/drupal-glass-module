@@ -114,52 +114,74 @@ function _glass_new_user($new_user) {
  * Form for module settings page.
  **/
 function glass_adminform($form_state) {
-	$form['glass_nodequeue'] = array(
-		'#title' => t('Nodequeue to push nodes from'),
-		'#type' => 'select',
-		'#required' => TRUE,
-		'#description' => t(''),
-		'#options' => _glass_admin_options_nodequeue(),
-		'#default_value' => variable_get('glass_nodequeue', 0),
+    $form['glass_fieldset_source_settings'] = array(
+    	'#type' => 'fieldset',
+    	'#title' => t('Source information'),
+    	'#collapsible' => TRUE,
+    	'#collapsed' => FALSE
 	);
-    $form['glass_send_node_updates'] = array(
-    	'#type' => 'checkbox',
-    	'#title' => t('Send node updates to Glassware as long as nodes are in the above nodequeue.'),
-    	'#default_value' => variable_get('glass_send_node_updates', 1),
+		$form['glass_fieldset_source_settings']['glass_nodequeue'] = array(
+			'#title' => t('Nodequeue to push nodes from'),
+			'#type' => 'select',
+			'#required' => TRUE,
+			'#description' => t(''),
+			'#options' => _glass_admin_options_nodequeue(),
+			'#default_value' => variable_get('glass_nodequeue', 0),
+		);
+	    $form['glass_fieldset_source_settings']['glass_send_node_updates'] = array(
+	    	'#type' => 'checkbox',
+	    	'#title' => t('Send node updates to Glassware as long as nodes are in the above nodequeue.'),
+	    	'#default_value' => variable_get('glass_send_node_updates', 1),
+		);
+		$form['glass_fieldset_source_settings']['glass_only_retain_nodequeue'] = array(
+			'#type' => 'checkbox',
+			'#title' => t('Remove nodes from Glassware when they\'re removed from the nodequeue.'),
+			'#default_value' => variable_get('glass_only_retain_nodequeue', 0)
+		);
+		$form['glass_fieldset_source_settings']['glass_use_images'] = array(
+			'#title' => t('Push images to Glassware'),
+			'#type' => 'checkbox',
+			'#default_value' => variable_get('glass_use_images', 0),
+		);
+	    $form['glass_fieldset_source_settings']['glass_imagefield'] = array(
+			'#type' => 'select', 
+			'#title' => t('Imagefield to push to Glassware'), 
+			'#default_value' => variable_get('glass_imagefield', 0),
+			'#options' => _glass_admin_options_imagefield(),
+			'#description' => t('Images from this field will be formatted using a special imagecache preset before being pushed to users.'),
+	    );
+    $form['glass_fieldset_bundle_settings'] = array(
+    	'#type' => 'fieldset',
+    	'#title' => t('Bundle settings'),
+    	'#collapsible' => TRUE,
+    	'#collapsed' => FALSE
 	);
-	$form['glass_only_retain_nodequeue'] = array(
-		'#type' => 'checkbox',
-		'#title' => t('Remove nodes from Glassware when they\'re removed from the nodequeue.'),
-		'#default_value' => variable_get('glass_only_retain_nodequeue', 0)
-	);
-	$form['glass_use_images'] = array(
-		'#title' => t('Push images to Glassware'),
-		'#type' => 'checkbox',
-		'#default_value' => variable_get('glass_use_images', 0),
-	);
-    $form['glass_imagefield'] = array(
-		'#type' => 'select', 
-		'#title' => t('Imagefield to push to Glassware'), 
-		'#default_value' => variable_get('glass_imagefield', 0),
-		'#options' => _glass_admin_options_imagefield(),
-		'#description' => t('Images from this field will be formatted using a special imagecache preset before being pushed to users.'),
-    );
-    $form['glass_bundlename'] = array(
-    	'#type' => 'textfield',
-    	'#title' => t('Bundle name for timeline items'),
-    	'#default_value' => variable_get('glass_bundlename', NULL),
-    	'#description' => t('This bundle name is used to pull your timeline items together into a single card. Changing it after pushing items to Glassware will result in a new bundle being created.')
-	);
-	$form['glass_bundle_cover'] = array(
-	    '#type' => 'file',
-	    '#title' => t('Bundle cover image'),
-	    '#description' => t('This image will be used as the bundle cover. It should be 640px x 360px.'),
-	    '#default_value' => variable_get('glass_bundle_cover', 0),
-	    // '#element_validate' => array('_glass_admin_cover_validate')
-	);    
-	$form['#attributes'] = array(
-	    'enctype' => "multipart/form-data"
-	);
+	    $form['glass_fieldset_bundle_settings']['glass_bundlename'] = array(
+	    	'#type' => 'textfield',
+	    	'#title' => t('Bundle name for timeline items'),
+	    	'#default_value' => variable_get('glass_bundlename', NULL),
+	    	'#description' => t('This bundle name is used to pull your timeline items together into a single card. Changing it after pushing items to Glassware will result in a new bundle being created.')
+		);
+	    /* Setup most of the bundle cover upload field */
+		$form['glass_fieldset_bundle_settings']['glass_bundle_cover'] = array(
+		    '#type' => 'file',
+		    '#title' => t('Bundle cover image'),
+		    '#element_validate' => array('_glass_admin_cover_validate')
+		);
+		/* If a cover hasn't been uploaded yet, indicate that */
+		if(!variable_get('glass_bundle_cover', 0)) {
+			$form['glass_fieldset_bundle_settings']['glass_bundle_cover']['#title'] = t('Upload a bundle cover image');
+			$form['glass_fieldset_bundle_settings']['glass_bundle_cover']['#description'] = t('This image will be used as the bundle cover. It should be 640px x 360px.');
+		}
+		/* If a cover has already been uploaded, display the image and show an option to change it. */
+		else {
+			$form['glass_fieldset_bundle_settings']['glass_bundle_cover']['#prefix'] = theme_image(variable_get('glass_bundle_cover', 0));
+			$form['glass_fieldset_bundle_settings']['glass_bundle_cover']['#title'] = t('Change the bundle cover image (above)');
+			$form['glass_fieldset_bundle_settings']['glass_bundle_cover']['#description'] = t('The new bundle cover won\'t be pushed to existing users.');
+		}
+		$form['#attributes'] = array(
+		    'enctype' => "multipart/form-data"
+		);
     global $base_url;
     $form['glass_installed_page'] = array(
     	'#type' => 'textfield',
@@ -168,47 +190,59 @@ function glass_adminform($form_state) {
     	'#description' => t('This is the page users will be redirected to after installing the Glassware. If one isn\'t set, they\'ll be redirected to the home page.'),
     	'#field_prefix' => $base_url . '/',
     );
-    $form['glass_api_client_id'] = array(
-    	'#type' => 'textfield',
-    	'#title' => t('API client ID'),
-    	'#default_value' => variable_get('glass_api_client_id', NULL)
-    );
-    $form['glass_api_client_secret'] = array(
-    	'#type' => 'textfield',
-    	'#title' => t('API client secret'),
-    	'#default_value' => variable_get('glass_api_client_secret', NULL)
-    );
-    $form['glass_api_simple_key'] = array(
-    	'#type' => 'textfield',
-    	'#title' => t('API simple key'),
-    	'#default_value' => variable_get('glass_api_simple_key', NULL)
-    );
+    $form['glass_fieldset_api_settings'] = array(
+    	'#type' => 'fieldset',
+    	'#title' => t('Google Mirror API settings'),
+    	'#collapsible' => TRUE,
+    	'#collapsed' => FALSE
+	);
+	    $form['glass_fieldset_api_settings']['glass_api_client_id'] = array(
+	    	'#type' => 'textfield',
+	    	'#title' => t('API client ID'),
+	    	'#default_value' => variable_get('glass_api_client_id', NULL)
+	    );
+	    $form['glass_fieldset_api_settings']['glass_api_client_secret'] = array(
+	    	'#type' => 'textfield',
+	    	'#title' => t('API client secret'),
+	    	'#default_value' => variable_get('glass_api_client_secret', NULL)
+	    );
+	    $form['glass_fieldset_api_settings']['glass_api_simple_key'] = array(
+	    	'#type' => 'textfield',
+	    	'#title' => t('API simple key'),
+	    	'#default_value' => variable_get('glass_api_simple_key', NULL)
+	    );
 	return system_settings_form($form);
 }
 
-/*
+/**
+ * Implementation of hook_form_alter() to add upload function for
+ * bundle cover image.
+ **/
 function glass_form_alter($form, $form_state, $form_id) {
-	print '<pre>';
-	print 'Form:';
-	print_r($form);
-	print 'Form_state:';
-	print_r($form_state);
-	print 'Form ID:';
-	print_r($form_id);
-	print '</pre>';
+	$form['#submit'][] = '_glass_admin_bundlecover_upload';
 }
-*/
 
 /**
- * Validation for bundle cover image.
+ * Upload handler for bundle cover image.
  **/
-/*
-function _glass_admin_cover_validate($element, &$form_state) {
-    if(empty($element['#value'])){
-		form_error($element, t('Uploading a bundle cover is required.'));
-	}
+function _glass_admin_bundlecover_upload($form_item) {
+    $dir = file_directory_path() . '/glass';
+    if(file_check_directory($dir, FILE_CREATE_DIRECTORY, $form_item)) {
+        $save = file_save_upload('glass_bundle_cover', $validators = array(), $dir, $replace = FILE_EXISTS_REPLACE);
+        if(!$save) {
+            form_set_error('glass_bundle_cover', t('There was an error saving the file to the upload folder.'));
+        } else {
+            $status = file_set_status($save, FILE_STATUS_PERMANENT);
+            if(!$status) {
+                form_set_error('glass_bundle_cover', t('There was an error permanently saving the file to the upload folder.'));
+            }
+            else {
+            	variable_set('glass_bundle_cover', $save->filepath);
+                watchdog('glass', 'The bundle cover image was updated.', $variables = array());
+            }
+        }
+    }
 }
-*/
 
 /**
  * Build options for Glassware image fields.
@@ -241,6 +275,10 @@ function _glass_admin_options_nodequeue() {
  * to Glassware.
  **/
 function glass_nodequeue_add($sqid, $nid) {
+
+	// TODO: Make sure the node hasn't already been pushed to Glassware
+	// before pushing it again.
+
 	if($sqid == variable_get('glass_nodequeue', 0)) {
 		_glass_push_card('insert', $nid);
 	}
