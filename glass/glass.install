@@ -126,6 +126,7 @@ function glass_uninstall() {
   variable_del('glass_send_node_updates');
   variable_del('glass_bundlename');
   variable_del('glass_only_retain_nodequeue');
+  variable_del('glass_bundle_cover');
 }
 
 /**

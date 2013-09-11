@@ -90,7 +90,12 @@ function _glass_new_user($new_user) {
 	$new_timeline_item->setBundleId(variable_get('glass_bundlename', NULL));
 	$new_timeline_item->setIsBundleCover(TRUE);
 	global $base_url;
-	$new_timeline_item->setHtml('<article class="photo"><img src="' . $base_url . '/' . drupal_get_path('module', 'glass') . '/img/bundle-cover.jpg" width="100%" height="100%"></article>');
+	if(variable_get('glass_bundle_cover', 0)) {
+		$new_timeline_item->setHtml('<article class="photo"><img src="' . $base_url . '/' . variable_get('glass_bundle_cover', 0) . '/img/bundle-cover.jpg" width="100%" height="100%"></article>');
+	}
+	else {
+		$new_timeline_item->setText(variable_get('site_name', 'Drupal site'));
+	}
 	$notification = new Google_NotificationConfig();
     $notification->setLevel("DEFAULT");
     $new_timeline_item->setNotification($notification);
