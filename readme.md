@@ -31,4 +31,4 @@ You'll see in the code that for this module to serve a large pool of Glass users
 
 License
 -------------------------
-This software is licensed under the Apache Software License. See `glass/license.txt` for the full license text.
+This software is licensed under the [Apache Software License](http://www.apache.org/licenses/LICENSE-2.0). See `glass/license.txt` for the full license text.
