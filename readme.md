@@ -28,3 +28,7 @@ Disclaimer
 __This module is purely experimental, so use at your own risk.__
 
 You'll see in the code that for this module to serve a large pool of Glass users it would need slightly restructured. This is really just a proof of concept to show how Drupal can be used to serve a website and Glass timeline items.
+
+License
+-------------------------
+This software is licensed under the Apache Software License. See `glass/license.txt` for the full license text.
